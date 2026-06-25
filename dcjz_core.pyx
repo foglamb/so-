@@ -31,75 +31,128 @@ def qmsg_send(msg):
         url = f"https://qmsg.zendee.cn/send/{qmsg_key}"
         resp = requests.post(url, data={"msg": msg}, timeout=10)
         if resp.json().get("success"):
-            print(f"[{now()}] Qmsg ok")
+            print(f"[{now()}] 📩 Qmsg通知发送成功")
     except:
         pass
 
-def get_tokens(ts):
-    return hashlib.sha256((PREFIX + ts + SUFFIX).encode()).hexdigest()
+def get_tokens(time_str):
+    raw = PREFIX + time_str + SUFFIX
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 def fetch_coins(account):
-    ts = str(int(time.time()))
-    headers = {"Host": "dcjzapi.666666hh.cn", "tokens": get_tokens(ts), "x-api-time": ts, "token": account["token"], "version": API_VERSION, "appid": APPID, "content-type": "application/x-www-form-urlencoded", "accept-encoding": "gzip", "user-agent": "okhttp/4.9.0"}
+    timestamp = str(int(time.time()))
+    headers = {
+        "Host": "dcjzapi.666666hh.cn",
+        "tokens": get_tokens(timestamp),
+        "x-api-time": timestamp,
+        "token": account["token"],
+        "version": API_VERSION,
+        "appid": APPID,
+        "content-type": "application/x-www-form-urlencoded",
+        "accept-encoding": "gzip",
+        "user-agent": "okhttp/4.9.0",
+    }
     ecpm = random.randint(ECPM_MIN, ECPM_MAX)
     net = random.choice(NETWORKS)
-    data = {"type": "", "lat": "", "lng": "", "device_id": account["device_id"], "sign": "", "token1": "", "brand_model": account["brand_model"], "brand": account["brand"], "model": account["model"], "ecpm": str(ecpm), "loadid": "", "networkName": net["networkName"], "networkPlacementId": net["networkPlacementId"], "local_type": net["local_type"], "version": "36", "time": str(int(time.time()*1000)), "cate": net["cate"]}
+    now_ms = str(int(time.time() * 1000))
+    data = {
+        "type": "", "lat": "", "lng": "", "device_id": account["device_id"],
+        "sign": "", "token1": "", "brand_model": account["brand_model"],
+        "brand": account["brand"], "model": account["model"],
+        "ecpm": str(ecpm), "loadid": "",
+        "networkName": net["networkName"], "networkPlacementId": net["networkPlacementId"],
+        "local_type": net["local_type"], "version": "36", "time": now_ms, "cate": net["cate"],
+    }
     try:
-        result = requests.post(BASE_URL, headers=headers, data=data, timeout=10).json()
+        resp = requests.post(BASE_URL, headers=headers, data=data, timeout=10)
+        result = resp.json()
         if result.get("code") == 200 and result.get("data"):
-            m = re.search(r'(\d+)', result["data"].get("unclaimed_coins", "0"))
-            if m: return int(m.group(1))
-    except: pass
+            coins_str = result["data"].get("unclaimed_coins", "0金币")
+            match = re.search(r'(\d+)', coins_str)
+            if match:
+                return int(match.group(1))
+    except:
+        pass
     return None
 
 def run_account(note, account):
-    print(f"[{now()}] [{note}] {account['device_id'][:12]}... start")
-    lc, ls = -1, ""
+    print(f"[{now()}] [{note}] device_id:{account['device_id'][:12]}... | 开始运行")
+    last_coins = -1
+    last_state = ""
     while True:
-        c = fetch_coins(account)
-        if c is None:
-            time.sleep(2); continue
-        if c >= COIN_MAX:
-            s = "max"
-            if ls != "max":
-                w = random.uniform(60,70)
-                print(f"[{now()}] [{note}] coins:{c} | {s} | wait {w:.0f}s")
-                qmsg_send(f"dcjz {note} max {COIN_MAX} coins:{c}")
-            lc, ls = c, s
-            time.sleep(random.uniform(60,70))
-        elif c <= COIN_MIN:
-            s = "recover"
-            if c != lc: print(f"[{now()}] [{note}] coins:{c} | {s}")
-            lc, ls = c, s
-            time.sleep(random.uniform(15,21))
+        coins = fetch_coins(account)
+        if coins is None:
+            time.sleep(2)
+            continue
+        if coins >= COIN_MAX:
+            state = "已达上限"
+            wait_time = random.uniform(60, 70)
+            if last_state != "已达上限":
+                print(f"[{now()}] [{note}] 金币:{coins} | 状态:{state} | 等待{wait_time:.1f}秒")
+                qmsg_send(f"【dcjz】{note}\n💰 已达上限 {COIN_MAX}\n当前金币: {coins}\n⏳ {wait_time:.1f}秒后自动继续")
+            last_coins = coins
+            last_state = state
+            time.sleep(wait_time)
+        elif coins <= COIN_MIN:
+            state = "恢复运行"
+            if coins != last_coins:
+                print(f"[{now()}] [{note}] 金币:{coins} | 状态:{state}")
+            last_coins = coins
+            last_state = state
+            time.sleep(random.uniform(15, 21))
         else:
-            s = "running"
-            if c != lc: print(f"[{now()}] [{note}] coins:{c} | {s}")
-            lc, ls = c, s
-            time.sleep(random.uniform(15,21))
+            state = "运行中"
+            if coins != last_coins:
+                print(f"[{now()}] [{note}] 金币:{coins} | 状态:{state}")
+            last_coins = coins
+            last_state = state
+            time.sleep(random.uniform(15, 21))
 
 def main():
-    print(f"[{now()}] Script started")
+    print(f"[{now()}] 🚀 脚本启动 多财金猪foglamb内部")
     raw = os.environ.get(ENV_NAME, "")
     if not raw:
-        print(f"[{now()}] Missing env: {ENV_NAME}")
+        print(f"[{now()}] ❌ 请设置环境变量 {ENV_NAME}")
         return
+    raw_index = os.environ.get("dcjz_INDEX", "")
+    allowed_indices = None
+    if raw_index.strip():
+        try:
+            allowed_indices = set()
+            for part in raw_index.split(","):
+                part = part.strip()
+                if "-" in part:
+                    s, e = part.split("-", 1)
+                    allowed_indices.update(range(int(s), int(e) + 1))
+                else:
+                    allowed_indices.add(int(part))
+        except:
+            print(f"[{now()}] ❌ dcjz_INDEX 格式错误")
+            return
+        print(f"[{now()}] 🎯 仅执行指定账号: {sorted(allowed_indices)}")
     accounts = []
     for i, acc in enumerate(raw.split("&"), 1):
         parts = acc.strip().split("#")
         if len(parts) != 6:
-            print(f"[{now()}] Account {i} format error")
+            print(f"[{now()}] ❌ 第{i}个账号格式错误！正确格式：备注#token#device_id#brand_model#brand#model")
             continue
-        accounts.append({"note": parts[0], "token": parts[1], "device_id": parts[2], "brand_model": parts[3], "brand": parts[4], "model": parts[5]})
+        if allowed_indices is not None and i not in allowed_indices:
+            continue
+        accounts.append({
+            "note": parts[0], "token": parts[1], "device_id": parts[2],
+            "brand_model": parts[3], "brand": parts[4], "model": parts[5],
+        })
     if not accounts:
-        print(f"[{now()}] No accounts")
+        print(f"[{now()}] ❌ 无有效账号")
         return
-    print(f"[{now()}] Loaded {len(accounts)} accounts")
+    print(f"[{now()}] ✅ 加载 {len(accounts)} 个账号\n")
     threads = []
     for acc in accounts:
         t = threading.Thread(target=run_account, args=(acc["note"], acc))
-        threads.append(t); t.start()
-    for t in threads: t.join()
+        threads.append(t)
+        t.start()
+    for t in threads:
+        t.join()
 
 if __name__ == "__main__":
     main()

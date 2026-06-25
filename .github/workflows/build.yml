@@ -1,4 +1,4 @@
-name: Build SO Files
+name: Build SO
 
 on:
   push:
@@ -7,50 +7,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-aarch64:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [linux/amd64, linux/arm64]
     steps:
     - uses: actions/checkout@v4
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-    - name: Build
-      uses: docker/build-push-action@v5
+    - uses: docker/setup-qemu-action@v3
       with:
-        context: .
-        platforms: ${{ matrix.arch }}
-        push: false
-        tags: build-${{ strategy.job-index }}
-    - name: Compile SO in Alpine container
+        platforms: arm64
+    - name: Build
+      shell: bash
       run: |
-        ARCH="${{ matrix.arch }}"
-        if [ "$ARCH" = "linux/arm64" ]; then
-          PLAT="aarch64"
-        else
-          PLAT="x86_64"
-        fi
-        
-        docker run --rm --platform $ARCH           -v ${{ github.workspace }}:/work           -w /work           python:3.12-alpine           sh -c "
-            apk add --no-cache gcc musl-dev python3-dev &&
-            pip install cython setuptools requests --break-system-packages &&
-            python setup.py build_ext --inplace &&
-            ls -la *.so
-          "
-        
+        docker run --rm --platform linux/arm64 -v $PWD:/work -w /work python:3.12-alpine sh -c "apk add --no-cache gcc musl-dev python3-dev && pip install cython setuptools --break-system-packages && python setup.py build_ext --inplace"
         ORIG=$(ls *.so 2>/dev/null | head -1)
-        if [ -n "$ORIG" ]; then
-          mkdir -p dist
-          cp "$ORIG" "dist/dcjz_core.cp312-linux-${PLAT}.so"
-        fi
+        mkdir -p dist
+        cp "$ORIG" dist/dcjz_core.cp312-linux-aarch64.so
     - uses: actions/upload-artifact@v4
       with:
-        name: dcjz-so-${{ matrix.arch == 'linux/arm64' && 'aarch64' || 'x86_64' }}
+        name: so-aarch64
+        path: dist/*.so
+
+  build-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      shell: bash
+      run: |
+        docker run --rm -v $PWD:/work -w /work python:3.12-alpine sh -c "apk add --no-cache gcc musl-dev python3-dev && pip install cython setuptools --break-system-packages && python setup.py build_ext --inplace"
+        ORIG=$(ls *.so 2>/dev/null | head -1)
+        mkdir -p dist
+        cp "$ORIG" dist/dcjz_core.cp312-linux-x86_64.so
+    - uses: actions/upload-artifact@v4
+      with:
+        name: so-x86_64
         path: dist/*.so
 
   release:
-    needs: build
+    needs: [build-aarch64, build-x86_64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:

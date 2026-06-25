@@ -1,12 +1,26 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, re, time, random, hashlib, requests, threading
+import os
+import re
+import time
+import random
+import hashlib
+import requests
+import threading
+import urllib3
 from datetime import datetime
 
+urllib3.disable_warnings()
+
+# ==================== 全局配置 ====================
 ENV_NAME = "dcjz"
 ECPM_MIN = 6000
 ECPM_MAX = 10000
 COIN_MAX = 3000
 COIN_MIN = 10
+QMSG_KEY = os.environ.get("QMSG_KEY", "")
+QMSG_ENABLED = bool(QMSG_KEY)
+
 NETWORKS = [
     {"networkName": "gdt", "networkPlacementId": "4341184330757686", "local_type": "2", "cate": "2"},
     {"networkName": "adscope", "networkPlacementId": "126889", "local_type": "1", "cate": "4"},
@@ -14,6 +28,7 @@ NETWORKS = [
     {"networkName": "AdGain", "networkPlacementId": "11003578", "local_type": "1", "cate": "4"},
     {"networkName": "gdt", "networkPlacementId": "4341184330757686", "local_type": "2", "cate": "2"},
 ]
+
 BASE_URL = "https://dcjzapi.666666hh.cn/api/adver/myd/list"
 APPID = "1"
 API_VERSION = "1.1.5"
@@ -24,11 +39,10 @@ def now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def qmsg_send(msg):
-    qmsg_key = os.environ.get("QMSG_KEY", "")
-    if not qmsg_key:
+    if not QMSG_ENABLED:
         return
     try:
-        url = f"https://qmsg.zendee.cn/send/{qmsg_key}"
+        url = f"https://qmsg.zendee.cn/send/{QMSG_KEY}"
         resp = requests.post(url, data={"msg": msg}, timeout=10)
         if resp.json().get("success"):
             print(f"[{now()}] 📩 Qmsg通知发送成功")
